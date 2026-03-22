@@ -165,23 +165,23 @@
     <div class="card">
       <h2>2. 解析する</h2>
       <button id="analyzeBtn" disabled>明暗差を解析する</button>
-      <p class="footer-note">この試作版は画像全体の明るさからざっくり推定します。顔優先や背景優先などの最終判断は、あとで改善できます。</p>
+      <p class="footer-note">この試作版は画像全体の明るさからざっくり推定します。暗い部分EVと明るい部分EVは絶対EVではなく、画像内の相対EVとして表示しています。</p>
     </div>
 
     <div class="card">
       <h2>3. 結果</h2>
       <div class="grid">
         <div class="metric">
-          <div class="metric-title">暗い部分</div>
+          <div class="metric-title">暗い部分EV</div>
           <div id="darkValue" class="metric-value">-</div>
         </div>
         <div class="metric">
-          <div class="metric-title">明るい部分</div>
+          <div class="metric-title">明るい部分EV</div>
           <div id="brightValue" class="metric-value">-</div>
         </div>
         <div class="metric">
-          <div class="metric-title">推定EV差</div>
-          <div id="evDiff" class="metric-value">-</div>
+          <div class="metric-title">適正露出の目安</div>
+          <div id="evDiff" class="metric-value" style="font-size:1rem;">-</div>
         </div>
         <div class="metric">
           <div class="metric-title">判定</div>
@@ -257,41 +257,71 @@
       const bright = Math.max(dark + 1, luminances[highIndex]);
       const evDiff = Math.log2(bright / dark);
 
-      darkValue.textContent = dark.toFixed(0);
-      brightValue.textContent = bright.toFixed(0);
-      evDiffEl.textContent = evDiff.toFixed(1) + '段';
+      const darkEV = toRelativeEV(dark);
+      const brightEV = toRelativeEV(bright);
+      const { judge, exposureGuide, advice } = buildAdvice(evDiff);
 
-      const { judge, advice } = buildAdvice(evDiff);
+      darkValue.textContent = darkEV >= 0 ? `+${darkEV.toFixed(1)}` : darkEV.toFixed(1);
+      brightValue.textContent = brightEV >= 0 ? `+${brightEV.toFixed(1)}` : brightEV.toFixed(1);
+      evDiffEl.textContent = exposureGuide;
       sceneJudge.textContent = judge;
-      resultText.textContent = `EV差：${evDiff.toFixed(1)}段\n\n判定：${judge}\n\nおすすめ：\n${advice}`;
+      resultText.textContent = `暗い部分EV：${darkValue.textContent}
+明るい部分EV：${brightValue.textContent}
+
+判定：${judge}
+
+適正露出の目安：
+${exposureGuide}
+
+おすすめ：
+${advice}`;
+    }
+
+    function toRelativeEV(value) {
+      const midGray = 128;
+      return Math.log2(value / midGray);
     }
 
     function buildAdvice(evDiff) {
       if (evDiff < 1.5) {
         return {
           judge: 'コントラスト弱め',
-          advice: '・全体バランスで撮りやすい\n・大きな補正は不要\n・初心者でも安定しやすいシーン'
+          exposureGuide: '補正なし前後でOK',
+          advice: '・全体バランスで撮りやすい
+・大きな補正は不要
+・初心者でも安定しやすいシーン'
         };
       }
 
       if (evDiff < 2.5) {
         return {
           judge: 'やや差あり',
-          advice: '・全体バランスならそのままでもOK\n・顔を優先するなら +0.5〜1補正\n・背景の白飛びに少し注意'
+          exposureGuide: '顔優先なら +0.5〜1.0EV',
+          advice: '・全体バランスならそのままでもOK
+・顔を優先するなら少し明るめ
+・背景の白飛びに少し注意'
         };
       }
 
       if (evDiff < 3.5) {
         return {
           judge: 'コントラスト強め',
-          advice: '・顔優先なら +1〜1.5補正\n・背景優先なら補正なし\n・木漏れ日や逆光では失敗しやすい'
+          exposureGuide: '顔優先なら +1.0〜1.5EV',
+          advice: '・顔優先なら少ししっかり明るめ
+・背景優先なら補正なし
+・木漏れ日や逆光では失敗しやすい'
         };
       }
 
       return {
         judge: 'かなり差が大きい',
-        advice: '・顔優先なら +1.5〜2補正\n・背景は飛びやすい\n・ネガなら明るめ寄りが安全\n・重要な被写体を先に決めて撮るとよい'
-      };
+        exposureGuide: '顔優先なら +1.5〜2.0EV',
+        advice: '・顔優先でしっかり明るめが安全
+・背景は飛びやすい
+・ネガなら明るめ寄りが安全
+・重要な被写体を先に決めて撮るとよい'
+        };
+      }
     }
   </script>
 </body>
