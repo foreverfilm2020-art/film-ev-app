@@ -27,7 +27,7 @@
     .wrap {
       max-width: 720px;
       margin: 0 auto;
-      padding: 20px 16px 40px;
+      padding: 24px 16px 60px;
     }
 
     .card {
@@ -66,17 +66,21 @@
       color: white;
       cursor: pointer;
       font-weight: 600;
+      margin-bottom: 12px;
     }
 
     input[type="file"] {
-      display: none;
+      display: block;
+      width: 100%;
+      margin-top: 8px;
+      font-size: 1rem;
     }
 
     button {
       width: 100%;
       border: none;
       border-radius: 12px;
-      padding: 14px 16px;
+      padding: 16px;
       font-size: 1rem;
       font-weight: 700;
       cursor: pointer;
@@ -97,6 +101,7 @@
       border: 1px solid var(--line);
       background: #f0ebe2;
       display: none;
+      margin-top: 12px;
     }
 
     .grid {
@@ -131,7 +136,7 @@
       border: 1px solid var(--line);
       border-radius: 14px;
       padding: 14px;
-      min-height: 120px;
+      min-height: 140px;
     }
 
     .footer-note {
@@ -151,21 +156,21 @@
   <div class="wrap">
     <div class="card">
       <h1>フィルムEVアシスタント</h1>
-      <p class="muted">まずは試作版です。画像から明るさの差をざっくり見て、撮影判断のヒントを出します。</p>
+      <p class="muted">画像の明るさ差から、露出判断のヒントを出す試作版です。</p>
     </div>
 
     <div class="card">
       <h2>1. 写真を選ぶ</h2>
       <label for="imageInput" class="file-label">写真を選択</label>
-      <input id="imageInput" type="file" accept="image/*" />
-      <p id="fileName" class="muted" style="margin-top:10px;">まだ画像が選ばれていません</p>
+      <input id="imageInput" type="file" accept="image/*,.heic,.heif" />
+      <p id="fileName" class="muted">まだ画像が選ばれていません</p>
       <img id="preview" class="preview" alt="選択画像のプレビュー" />
     </div>
 
     <div class="card">
       <h2>2. 解析する</h2>
-      <button id="analyzeBtn" disabled>明暗差を解析する</button>
-      <p class="footer-note">この試作版は画像全体の明るさからざっくり推定します。暗い部分EVと明るい部分EVは絶対EVではなく、画像内の相対EVとして表示しています。</p>
+      <button id="analyzeBtn" disabled>解析する</button>
+      <p class="footer-note">暗い部分EVと明るい部分EVは、画像内の相対EVです。絶対EVではありません。</p>
     </div>
 
     <div class="card">
@@ -181,7 +186,7 @@
         </div>
         <div class="metric">
           <div class="metric-title">適正露出の目安</div>
-          <div id="evDiff" class="metric-value" style="font-size:1rem;">-</div>
+          <div id="exposureGuide" class="metric-value" style="font-size:1rem;">-</div>
         </div>
         <div class="metric">
           <div class="metric-title">判定</div>
@@ -199,33 +204,45 @@
     const analyzeBtn = document.getElementById('analyzeBtn');
     const darkValue = document.getElementById('darkValue');
     const brightValue = document.getElementById('brightValue');
-    const evDiffEl = document.getElementById('evDiff');
+    const exposureGuideEl = document.getElementById('exposureGuide');
     const sceneJudge = document.getElementById('sceneJudge');
     const resultText = document.getElementById('resultText');
 
-    let currentImage = null;
+    let selectedFile = null;
+    let currentObjectUrl = null;
 
-    imageInput.addEventListener('change', (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
+    imageInput.addEventListener('change', function (event) {
+      const file = event.target.files && event.target.files[0];
 
-      fileName.textContent = file.name;
-      const reader = new FileReader();
-      reader.onload = () => {
-        preview.src = reader.result;
-        preview.style.display = 'block';
-        currentImage = reader.result;
-        analyzeBtn.disabled = false;
-      };
-      reader.readAsDataURL(file);
+      if (!file) {
+        fileName.textContent = '画像が選ばれませんでした';
+        selectedFile = null;
+        analyzeBtn.disabled = true;
+        preview.style.display = 'none';
+        return;
+      }
+
+      selectedFile = file;
+      fileName.textContent = file.name + ' を選択中';
+      analyzeBtn.disabled = false;
+
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+      }
+
+      currentObjectUrl = URL.createObjectURL(file);
+      preview.src = currentObjectUrl;
+      preview.style.display = 'block';
     });
 
-    analyzeBtn.addEventListener('click', () => {
-      if (!currentImage) return;
+    analyzeBtn.addEventListener('click', function () {
+      if (!selectedFile || !preview.src) return;
 
       const img = new Image();
-      img.onload = () => analyzeImage(img);
-      img.src = currentImage;
+      img.onload = function () {
+        analyzeImage(img);
+      };
+      img.src = preview.src;
     });
 
     function analyzeImage(img) {
@@ -238,7 +255,8 @@
       canvas.height = Math.max(1, Math.floor(img.height * scale));
 
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
 
       const luminances = [];
       for (let i = 0; i < data.length; i += 4) {
@@ -253,28 +271,31 @@
 
       const lowIndex = Math.floor(luminances.length * 0.1);
       const highIndex = Math.floor(luminances.length * 0.9);
+
       const dark = Math.max(1, luminances[lowIndex]);
       const bright = Math.max(dark + 1, luminances[highIndex]);
       const evDiff = Math.log2(bright / dark);
 
       const darkEV = toRelativeEV(dark);
       const brightEV = toRelativeEV(bright);
-      const { judge, exposureGuide, advice } = buildAdvice(evDiff);
+      const result = buildAdvice(evDiff);
 
-      darkValue.textContent = darkEV >= 0 ? `+${darkEV.toFixed(1)}` : darkEV.toFixed(1);
-      brightValue.textContent = brightEV >= 0 ? `+${brightEV.toFixed(1)}` : brightEV.toFixed(1);
-      evDiffEl.textContent = exposureGuide;
-      sceneJudge.textContent = judge;
-      resultText.textContent = `暗い部分EV：${darkValue.textContent}
-明るい部分EV：${brightValue.textContent}
+      darkValue.textContent = formatEV(darkEV);
+      brightValue.textContent = formatEV(brightEV);
+      exposureGuideEl.textContent = result.exposureGuide;
+      sceneJudge.textContent = result.judge;
 
-判定：${judge}
+      resultText.textContent =
+`暗い部分EV：${formatEV(darkEV)}
+明るい部分EV：${formatEV(brightEV)}
+
+判定：${result.judge}
 
 適正露出の目安：
-${exposureGuide}
+${result.exposureGuide}
 
 おすすめ：
-${advice}`;
+${result.advice}`;
     }
 
     function toRelativeEV(value) {
@@ -282,14 +303,16 @@ ${advice}`;
       return Math.log2(value / midGray);
     }
 
+    function formatEV(value) {
+      return value >= 0 ? '+' + value.toFixed(1) : value.toFixed(1);
+    }
+
     function buildAdvice(evDiff) {
       if (evDiff < 1.5) {
         return {
           judge: 'コントラスト弱め',
           exposureGuide: '補正なし前後でOK',
-          advice: '・全体バランスで撮りやすい
-・大きな補正は不要
-・初心者でも安定しやすいシーン'
+          advice: '・全体バランスで撮りやすい\n・大きな補正は不要\n・初心者でも安定しやすいシーン'
         };
       }
 
@@ -297,9 +320,7 @@ ${advice}`;
         return {
           judge: 'やや差あり',
           exposureGuide: '顔優先なら +0.5〜1.0EV',
-          advice: '・全体バランスならそのままでもOK
-・顔を優先するなら少し明るめ
-・背景の白飛びに少し注意'
+          advice: '・全体バランスならそのままでもOK\n・顔を優先するなら少し明るめ\n・背景の白飛びに少し注意'
         };
       }
 
@@ -307,19 +328,14 @@ ${advice}`;
         return {
           judge: 'コントラスト強め',
           exposureGuide: '顔優先なら +1.0〜1.5EV',
-          advice: '・顔優先なら少ししっかり明るめ
-・背景優先なら補正なし
-・木漏れ日や逆光では失敗しやすい'
+          advice: '・顔優先なら少ししっかり明るめ\n・背景優先なら補正なし\n・木漏れ日や逆光では失敗しやすい'
         };
       }
 
       return {
         judge: 'かなり差が大きい',
         exposureGuide: '顔優先なら +1.5〜2.0EV',
-        advice: '・顔優先でしっかり明るめが安全
-・背景は飛びやすい
-・ネガなら明るめ寄りが安全
-・重要な被写体を先に決めて撮るとよい'
+        advice: '・顔優先でしっかり明るめが安全\n・背景は飛びやすい\n・ネガなら明るめ寄りが安全\n・重要な被写体を先に決めて撮るとよい'
       };
     }
   </script>
